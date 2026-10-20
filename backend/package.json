@@ -1,0 +1,13 @@
+{
+  "name": "smart-interview-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "nodemailer": "^10.1.1"
+  }
+}
