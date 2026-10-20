@@ -41,21 +41,109 @@ function mergeAudioMetricResults(previous, next) {
   };
 }
 
+
 function mergeVideoMetricResults(previous, next) {
   if (!next) return previous;
   if (!next.available) return previous || next;
   if (!previous?.available) return next;
 
-  const samples = (Number(previous.samples) || 0) + (Number(next.samples) || 0);
-  const visibleSamples = (Number(previous.visibleSamples) || 0) + (Number(next.visibleSamples) || 0);
+  const samples =
+    (Number(previous.samples) || 0) +
+    (Number(next.samples) || 0);
+
+  const visibleSamples =
+    (Number(previous.visibleSamples) || 0) +
+    (Number(next.visibleSamples) || 0);
+
+  const previousOrientationCount =
+    Number(previous.headOrientationSamples) || 0;
+
+  const nextOrientationCount =
+    Number(next.headOrientationSamples) || 0;
+
+  const orientationCount =
+    previousOrientationCount + nextOrientationCount;
+
+  const weightedAverage = (key) => {
+    if (!orientationCount) return null;
+
+    const previousValue = Number(previous[key]);
+    const nextValue = Number(next[key]);
+
+    const previousTotal = Number.isFinite(previousValue)
+      ? previousValue * previousOrientationCount
+      : 0;
+
+    const nextTotal = Number.isFinite(nextValue)
+      ? nextValue * nextOrientationCount
+      : 0;
+
+    return Number(
+      ((previousTotal + nextTotal) / orientationCount).toFixed(3)
+    );
+  };
+
+  const previousMovementCount =
+    Number(previous.headMovementSamples) || 0;
+
+  const nextMovementCount =
+    Number(next.headMovementSamples) || 0;
+
+  const movementCount =
+    previousMovementCount + nextMovementCount;
+
+  const previousMovement = Number(previous.averageHeadMovement);
+  const nextMovement = Number(next.averageHeadMovement);
+
+  const movementTotal =
+    (Number.isFinite(previousMovement)
+      ? previousMovement * previousMovementCount
+      : 0) +
+    (Number.isFinite(nextMovement)
+      ? nextMovement * nextMovementCount
+      : 0);
+
+  const maximumHeadMovement = [
+    previous.maximumHeadMovement,
+    next.maximumHeadMovement,
+  ]
+    .map(Number)
+    .filter(Number.isFinite);
 
   return {
     available: true,
+    status: "completed",
     samples,
     visibleSamples,
-    visibilityRatio: samples ? Number((visibleSamples / samples).toFixed(3)) : null,
+    visibilityRatio: samples
+      ? Number((visibleSamples / samples).toFixed(3))
+      : null,
+    faceDetectionRate: samples
+      ? Number((visibleSamples / samples).toFixed(3))
+      : null,
+    headOrientationSamples: orientationCount,
+    averageAbsoluteYawIndicator: weightedAverage(
+      "averageAbsoluteYawIndicator"
+    ),
+    averageAbsolutePitchIndicator: weightedAverage(
+      "averageAbsolutePitchIndicator"
+    ),
+    averageAbsoluteRollDegrees: weightedAverage(
+      "averageAbsoluteRollDegrees"
+    ),
+    headMovementSamples: movementCount,
+    averageHeadMovement: movementCount
+      ? Number((movementTotal / movementCount).toFixed(4))
+      : null,
+    maximumHeadMovement: maximumHeadMovement.length
+      ? Math.max(...maximumHeadMovement)
+      : null,
+    durationMs:
+      (Number(previous.durationMs) || 0) +
+      (Number(next.durationMs) || 0),
   };
 }
+
 
 function App() {
   const [page, setPage] = useState("login");
@@ -2025,6 +2113,10 @@ const loadInterviewHistory = async () => {
                     ))}
                   </ul>
 
+                  <PresentationFeedbackSection
+                    feedback={evaluationResult.presentationFeedback}
+                  />
+
                   <h3>Answer-by-Answer Feedback</h3>
                   {(evaluationResult.answerFeedback || []).map((item, index) => (
                     <div key={index} style={{ marginBottom: "18px" }}>
@@ -2118,6 +2210,10 @@ const loadInterviewHistory = async () => {
           <li key={index}>{item}</li>
         ))}
       </ul>
+
+      <PresentationFeedbackSection
+        feedback={evaluationResult.presentationFeedback}
+      />
     </>
   ) : (
     <>
@@ -2565,6 +2661,72 @@ function StatCard({ icon, title, value, subtitle }) {
 // =========================================================
 // FEEDBACK CARD
 // =========================================================
+
+
+function PresentationFeedbackSection({ feedback }) {
+  if (!feedback) return null;
+
+  const statusLabel = {
+    available: "Based on available measurements",
+    limited: "Limited measurements",
+    unavailable: "General coaching tips",
+  };
+
+  return (
+    <section
+      className="presentation-feedback"
+      style={{
+        marginTop: "24px",
+        padding: "20px",
+        border: "1px solid var(--border-color, #ddd)",
+        borderRadius: "12px",
+      }}
+    >
+      <h3>🎥 Body Language & Presentation Feedback</h3>
+
+      <p>
+        {statusLabel[feedback.status] || "Presentation coaching"}
+      </p>
+
+      {feedback.summary && <p>{feedback.summary}</p>}
+
+      {Array.isArray(feedback.observations) &&
+      feedback.observations.length > 0 ? (
+        <div style={{ display: "grid", gap: "14px" }}>
+          {feedback.observations.map((item, index) => (
+            <div
+              key={`${item.area || "tip"}-${index}`}
+              style={{
+                padding: "14px",
+                borderRadius: "10px",
+                background: "var(--card-background, #f7f7f7)",
+              }}
+            >
+              <h4 style={{ marginTop: 0 }}>
+                {item.area || "Presentation tip"}
+              </h4>
+
+              {item.evidence && (
+                <p>
+                  <strong>Observation:</strong> {item.evidence}
+                </p>
+              )}
+
+              {item.suggestion && (
+                <p>
+                  <strong>Suggestion:</strong> {item.suggestion}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p>No presentation suggestions were returned for this interview.</p>
+      )}
+    </section>
+  );
+}
+
 function FeedbackCard({ icon, title, text }) {
   return (
     <div className="feedback-card">

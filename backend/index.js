@@ -668,12 +668,15 @@ async function handle(request, response) {
         body: JSON.stringify({
           overall_score: evaluation.overallScore,
           scores: evaluation.scores,
+                    
           ai_feedback: {
             summary: evaluation.summary,
             strengths: evaluation.strengths,
             improvements: evaluation.improvements,
             answerFeedback: evaluation.answerFeedback,
+            presentationFeedback: evaluation.presentationFeedback,
           },
+
         }),
       }
     );
