@@ -579,12 +579,13 @@ async function handle(request, response) {
     const payload = await readJson(request);
     const { url, serviceRoleKey } = supabaseConfig({ admin: true });
 
-    // Load the interview belonging to the authenticated user.
+    // Load only this user's completed interview.
     const query = new URLSearchParams({
       id: `eq.${interviewId}`,
       user_id: `eq.${user.id}`,
       status: "eq.completed",
-      select: "id,interview_type,difficulty,questions_answers,overall_score,scores,ai_feedback",
+      select:
+        "id,interview_type,difficulty,questions_answers,overall_score,scores,ai_feedback",
     });
 
     const interviewResponse = await fetch(
@@ -624,7 +625,7 @@ async function handle(request, response) {
       });
     }
 
-    // Avoid accidental duplicate Gemini calls for an already evaluated interview.
+    // Return the stored evaluation without making another Gemini request.
     if (
       interview.ai_feedback &&
       typeof interview.overall_score === "number"
@@ -639,6 +640,7 @@ async function handle(request, response) {
       });
     }
 
+    // Generate the AI evaluation.
     const evaluation = await generateInterviewEvaluation({
       interviewType: interview.interview_type,
       difficulty: interview.difficulty,
@@ -647,7 +649,11 @@ async function handle(request, response) {
       videoMetrics: payload.videoMetrics ?? null,
     });
 
-    // Persist only validated evaluation data.
+    // Attach transcript-based filler-word metrics.
+    evaluation.fillerWordMetrics =
+      payload.fillerWordMetrics ?? null;
+
+    // Save the evaluation in Supabase.
     const updateQuery = new URLSearchParams({
       id: `eq.${interviewId}`,
       user_id: `eq.${user.id}`,
@@ -668,15 +674,14 @@ async function handle(request, response) {
         body: JSON.stringify({
           overall_score: evaluation.overallScore,
           scores: evaluation.scores,
-                    
           ai_feedback: {
             summary: evaluation.summary,
             strengths: evaluation.strengths,
             improvements: evaluation.improvements,
             answerFeedback: evaluation.answerFeedback,
             presentationFeedback: evaluation.presentationFeedback,
+            fillerWordMetrics: evaluation.fillerWordMetrics,
           },
-
         }),
       }
     );
@@ -693,7 +698,8 @@ async function handle(request, response) {
 
     if (!Array.isArray(updatedRows) || updatedRows.length === 0) {
       return sendJson(response, 409, {
-        message: "The interview could not be updated. Please refresh and retry.",
+        message:
+          "The interview could not be updated. Please refresh and retry.",
       });
     }
 
@@ -702,7 +708,6 @@ async function handle(request, response) {
       alreadyEvaluated: false,
     });
   }
-
 
   // Reject unmatched API routes.
   if (pathname.startsWith("/api/") && !publicAuthRoute) {

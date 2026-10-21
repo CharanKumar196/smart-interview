@@ -4,6 +4,7 @@ export async function evaluateInterview({
   accessToken,
   audioMetrics = null,
   videoMetrics = null,
+  fillerWordMetrics = null,
 }) {
   if (!interviewId || !accessToken) {
     throw new Error("Interview ID and login session are required.");
@@ -22,6 +23,7 @@ export async function evaluateInterview({
       body: JSON.stringify({
         audioMetrics,
         videoMetrics,
+        fillerWordMetrics,
       }),
     }
   );

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { signInAuthorizedUser, signOutUser } from "./lib/authFlows";
 import { getAuthorizedProfile } from "./lib/authorizedApi";
 import { isSupabaseConfigured, supabase } from "./lib/supabase";
@@ -7,6 +7,7 @@ import VoiceToText from "./components/VoiceToText";
 import { evaluateInterview } from "./services/interview-analysis/evaluationService";
 import { startAudioMetrics } from "./services/interview-analysis/audioMetrics";
 import { startVideoMetrics } from "./services/interview-analysis/videoMetrics";
+import { analyzeFillerWords } from "./services/interview-analysis/fillerWordMetrics";
 
 function mergeAudioMetricResults(previous, next) {
   if (!next) return previous;
@@ -171,6 +172,7 @@ function App() {
   const [evaluationLoading, setEvaluationLoading] = useState(false);
   const [evaluationError, setEvaluationError] = useState("");
   const [evaluationResult, setEvaluationResult] = useState(null);
+  const [fillerWordResults, setFillerWordResults] = useState(null);
 
 
 
@@ -249,11 +251,16 @@ const videoMetricsStopRef = useRef(null);
 const audioMetricsResultRef = useRef(null);
 const videoMetricsResultRef = useRef(null);
 
-  const questions = getInterviewQuestions(
-    interviewType,
-    interviewRole,
-    difficulty
-  );
+  const [questionSetSeed, setQuestionSetSeed] = useState(0);
+
+    const questions = useMemo(
+      () => getInterviewQuestions(
+        interviewType,
+        interviewRole,
+        difficulty
+      ),
+      [interviewType, interviewRole, difficulty, questionSetSeed]
+    );
 
  
   // Load interview history whenever the Dashboard or History page is opened.
@@ -978,16 +985,22 @@ const videoMetricsResultRef = useRef(null);
       setSpeechGracePeriod(false);
 
       setCurrentInterviewId(data.interview.id);
-      setQuestionIndex(0);
-      setInterviewAnswers({});
-      setCurrentAnswer("");
-      setTimeLeft(Number(duration) * 60);
-      setInterviewStarted(true);
-      setPage("interview");
+
+    // Generate a fresh randomized question set.
+    setQuestionSetSeed((seed) => seed + 1);
+
+    setQuestionIndex(0);
+    setInterviewAnswers({});
+    setCurrentAnswer("");
+    setTimeLeft(Number(duration) * 60);
+    setInterviewStarted(true);
+    setPage("interview");
 
 // Reset metrics for this new interview.
 audioMetricsResultRef.current = null;
 videoMetricsResultRef.current = null;
+setFillerWordResults(null);
+setEvaluationResult(null);
 
 // Start camera and microphone.
 void startCamera();
@@ -1000,7 +1013,10 @@ void startMicrophone();
 
   
   // ---------------- RUN AI EVALUATION ----------------
-  const runInterviewEvaluation = async (interviewId = currentInterviewId) => {
+  const runInterviewEvaluation = async (
+  interviewId = currentInterviewId,
+  fillerWordMetrics = fillerWordResults
+) => {
     if (!interviewId) {
       setEvaluationError("No interview ID was found. Please refresh and try again.");
       return;
@@ -1021,12 +1037,13 @@ void startMicrophone();
         throw new Error("Please sign in again to evaluate your interview.");
       }
 
-      const evaluation = await evaluateInterview({
-        interviewId,
-        accessToken: session.access_token,
-        audioMetrics: audioMetricsResultRef.current,
-        videoMetrics: videoMetricsResultRef.current,
-      });
+    const evaluation = await evaluateInterview({
+      interviewId,
+      accessToken: session.access_token,
+      audioMetrics: audioMetricsResultRef.current,
+      videoMetrics: videoMetricsResultRef.current,
+      fillerWordMetrics,
+    });
 
       setEvaluationResult(evaluation);
     } catch (error) {
@@ -1077,6 +1094,12 @@ void startMicrophone();
         .sort((a, b) => Number(a) - Number(b))
         .map((index) => finalAnswers[index]);
 
+
+      const fillerResults = analyzeFillerWords(questionsAnswers);
+        setFillerWordResults(fillerResults);
+
+        console.log("Filler-word analysis:", fillerResults);
+
       const apiBase = import.meta.env.VITE_API_URL || "";
 
       const response = await fetch(
@@ -1125,7 +1148,7 @@ void startMicrophone();
     stopCamera();
     setPage("completed");
 
-    await runInterviewEvaluation(currentInterviewId);
+    await runInterviewEvaluation(currentInterviewId, fillerResults);
 
     } catch (error) {
       console.error("Finish interview error:", error);
@@ -1787,6 +1810,8 @@ const loadInterviewHistory = async () => {
                     <option>Cloud Computing</option>
                     <option>Software Tester</option>
                     <option>Data Analyst</option>
+                    <option>Electrical Engineering</option>
+                    <option>Mechanical Engineering</option>
                   </>
                 )}
 
@@ -2116,6 +2141,37 @@ const loadInterviewHistory = async () => {
                   <PresentationFeedbackSection
                     feedback={evaluationResult.presentationFeedback}
                   />
+
+                  
+                  {fillerWordResults && (
+                    <section style={{ marginTop: "24px" }}>
+                      <h3>Speaking Habits: Filler Words</h3>
+                      <p>
+                        Detected filler-word occurrences:{" "}
+                        <strong>{fillerWordResults.totalFillerWords}</strong>
+                      </p>
+
+                      {fillerWordResults.totalFillerWords > 0 ? (
+                        <ul>
+                          {Object.entries(fillerWordResults.counts).map(
+                            ([word, count]) => (
+                              <li key={word}>
+                                "{word}": {count}
+                              </li>
+                            )
+                          )}
+                        </ul>
+                      ) : (
+                        <p>No listed filler words were detected in your transcript.</p>
+                      )}
+
+                      <p style={{ fontSize: "0.9em", opacity: 0.8 }}>
+                        Counts are based on speech recognition and may include
+                        words used naturally in context.
+                      </p>
+                    </section>
+                  )}
+
 
                   <h3>Answer-by-Answer Feedback</h3>
                   {(evaluationResult.answerFeedback || []).map((item, index) => (
